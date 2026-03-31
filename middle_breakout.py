@@ -98,11 +98,12 @@ def main():
 
     pad = pygame.Rect(WIDTH // 2 - PAD_W // 2, HEIGHT - 40, PAD_W, PAD_H)
     ball = pygame.Rect(WIDTH // 2 - BALL_R, HEIGHT // 2, BALL_R * 2, BALL_R * 2)
-    bx, by = level_cfg["ball_speed"], -level_cfg["ball_speed"]
+    bx, by = level_cfg["ball_speed"], level_cfg["ball_speed"]
     blocks = make_blocks(level_cfg["rows"])
     score = 0
     lives = 3
     launched = False
+    pre_launch_bx = level_cfg["ball_speed"]
 
     while True:
         clock.tick(FPS)
@@ -113,7 +114,12 @@ def main():
                 sys.exit()
             if e.type == pygame.KEYDOWN and e.key == pygame.K_SPACE:
                 launched = True
+                # [핵심 수정] 위(-speed)가 아니라 아래(+speed)로 날아가게 설정
+                by = abs(level_cfg["ball_speed"]) 
+                # 현재 좌우 왕복하던 속도를 그대로 반영
+                bx = pre_launch_bx
 
+        # 1. 패들 이동 처리 (공이 붙어있을 때도 패들은 움직여야 함)
         keys = pygame.key.get_pressed()
         if keys[pygame.K_LEFT] and pad.left > 0:
             pad.x -= 7
@@ -121,13 +127,21 @@ def main():
             pad.x += 7
 
         if not launched:
-            ball.centerx = pad.centerx
+            # 1. 공의 좌우 왕복 이동 (y좌표는 고정)
+            ball.x += pre_launch_bx
+            
+            # 2. 화면 벽에 부딪히면 튕기기
+            if ball.left <= 0 or ball.right >= WIDTH:
+                pre_launch_bx = -pre_launch_bx
+            
+            # 화면 그리기
             screen.fill(GRAY)
             for b in blocks:
                 pygame.draw.rect(screen, b["color"], b["rect"])
             pygame.draw.rect(screen, WHITE, pad)
             pygame.draw.ellipse(screen, WHITE, ball)
             draw_hud(score, lives, level_cfg)
+            
             text_surf = font.render("SPACE to launch", True, YELLOW)
             screen.blit(
                 text_surf, (WIDTH // 2 - text_surf.get_width() // 2, HEIGHT // 2 + 40)
