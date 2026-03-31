@@ -112,12 +112,16 @@ def main():
             if e.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
+            
+            # 스페이스바 처리 부분 수정
             if e.type == pygame.KEYDOWN and e.key == pygame.K_SPACE:
-                launched = True
-                # [핵심 수정] 위(-speed)가 아니라 아래(+speed)로 날아가게 설정
-                by = abs(level_cfg["ball_speed"]) 
-                # 현재 좌우 왕복하던 속도를 그대로 반영
-                bx = pre_launch_bx
+                # 공이 '아직' 발사되지 않은 상태일 때만 발사 로직을 실행합니다.
+                if not launched: 
+                    launched = True
+                    # 아래(+speed)로 날아가게 설정
+                    by = abs(level_cfg["ball_speed"]) 
+                    # 현재 좌우 왕복하던 속도를 그대로 반영
+                    bx = pre_launch_bx
 
         # 1. 패들 이동 처리 (공이 붙어있을 때도 패들은 움직여야 함)
         keys = pygame.key.get_pressed()
