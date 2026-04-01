@@ -1,5 +1,6 @@
 import pygame
 import sys
+import random
 
 pygame.init()
 
@@ -69,7 +70,7 @@ def make_blocks(rows):
 
 def draw_hud(score, lives, level_cfg, ammo):
     screen.blit(font.render(f"Score: {score}", True, WHITE), (10, 10))
-    screen.blit(font.render(f"Lives: {'♥ ' * lives}", True, RED), (WIDTH - 180, 10))
+    screen.blit(font.render(f"Lives: {'♥ ' * lives}", True, RED), (WIDTH - 250, 10))
     screen.blit(font.render(level_cfg["label"], True, YELLOW), (WIDTH // 2 - 25, 10))
     # 탄약 표시 (남은 개수가 적으면 빨간색으로 보이게)
     ammo_color = WHITE if ammo > 3 else RED
@@ -106,11 +107,16 @@ def main():
     score = 0
     lives = 3
     launched = False
-    pre_launch_bx = level_cfg["ball_speed"]    
+    pre_launch_bx = level_cfg["ball_speed"]
+    
     bullets = [] # 탄환들을 저장할 리스트
     BULLET_W, BULLET_H = 4, 10 # 탄환 크기
     BULLET_SPEED = 10 # 탄환 속도
     ammo = 10  # 초기 탄약 10발
+    
+    items = [] # 떨어지는 아이템들을 저장할 리스트
+    ITEM_W, ITEM_H = 20, 20
+    ITEM_SPEED = 3
     
     # 블록 하강 관련 변수
     BLOCK_MOVE_INTERVAL = 3000  # 3초마다 하강
@@ -190,6 +196,13 @@ def main():
                     if bullet.colliderect(b["rect"]):
                         b["hp"] -= 1
                         if b["hp"] <= 0:
+                            # 아이템 생성 로직
+                            if random.random() < 0.1: # 10% 확률
+                                new_item = {
+                                    "rect": pygame.Rect(b["rect"].centerx - 10, b["rect"].bottom, 20, 20),
+                                    "type": "AMMO"
+                                }
+                                items.append(new_item)
                             blocks.remove(b)
                             score += 10
                         # 탄환이 이미 리스트에 있을 때만 삭제 (중복 삭제 방지)
@@ -199,7 +212,21 @@ def main():
         
             ball.x += bx
             ball.y += by
-
+            
+            # 아이템 로직
+            for item in items[:]:
+                item["rect"].y += ITEM_SPEED # 아래로 낙하
+            
+                # 패들이 아이템을 먹었을 때
+                if item["rect"].colliderect(pad):
+                    ammo += 2  # 총알 2발 충전 (원하시는 만큼 조절하세요)
+                    items.remove(item)
+                    continue
+                
+                # 화면 밖으로 나가면 제거
+                if item["rect"].top > HEIGHT:
+                    items.remove(item)
+            
             if ball.left <= 0 or ball.right >= WIDTH:
                 # hit_wall_sound.play()
                 bx = -bx
@@ -224,6 +251,13 @@ def main():
                 if hit_block["hp"] <= 0:
                     blocks.remove(hit_block)
                     score += 10
+                    # [추가] 10% 확률로 아이템 생성
+                    if random.random() < 0.1: # 0.0 ~ 1.0 사이 난수
+                        new_item = {
+                            "rect": pygame.Rect(hit_block["rect"].centerx - 10, hit_block["rect"].bottom, 20, 20),
+                            "type": "AMMO"
+                        }
+                        items.append(new_item)
                 by = -by
     
             if ball.bottom >= HEIGHT:
@@ -231,6 +265,17 @@ def main():
                 lives -= 1
                 launched = False
                 ball.center = (WIDTH // 2, HEIGHT // 2)
+                # 모든 블록의 위치를 초기화
+                # r (행 번호)을 다시 계산해서 원래 y 위치로 보냅니다.
+                for i, b in enumerate(blocks):
+                    # 처음에 blocks를 만들 때 r % len(BLOCK_COLORS) 순서로 만들었으므로
+                    # 행 번호는 i // BLOCK_COLS 로 계산할 수 있습니다.
+                    row_idx = i // BLOCK_COLS
+                    b["rect"].y = BLOCK_TOP + row_idx * (BLOCK_H + BLOCK_MARGIN)
+                
+                # 타이머도 초기화해서 부활하자마자 블록이 내려오는 걸 방지
+                last_block_move = pygame.time.get_ticks()
+
                 if lives <= 0:
                     if message_screen("GAME OVER", RED, score):
                         main()
@@ -264,13 +309,18 @@ def main():
         # 3. 탄환 그리기
         for bullet in bullets:
             pygame.draw.rect(screen, YELLOW, bullet)
+        
+        # 4. 아이템 그리기
+        for item in items:
+            # 총알 아이템은 눈에 띄게 초록색이나 하늘색으로!
+            pygame.draw.rect(screen, GREEN, item["rect"])
             
-        # 4. 발사 전 안내 문구 (시작 안 했을 때만)
+        # 5. 발사 전 안내 문구 (시작 안 했을 때만)
         if not launched:
             text_surf = font.render("SPACE to launch", True, YELLOW)
             screen.blit(text_surf, (WIDTH // 2 - text_surf.get_width() // 2, HEIGHT // 2 + 40))
             
-        # 5. HUD 및 업데이트
+        # 6. HUD 및 업데이트
         draw_hud(score, lives, level_cfg, ammo)
         pygame.display.flip()
 main()
