@@ -3,7 +3,7 @@ import sys
 
 pygame.init()
 
-
+#한국폰트 불러오기
 def get_korean_font(size):
     candidates = ["malgungothic", "applegothic", "nanumgothic", "notosanscjk"]
     for name in candidates:
@@ -67,10 +67,13 @@ def make_blocks(rows):
     return blocks
 
 
-def draw_hud(score, lives, level_cfg):
+def draw_hud(score, lives, level_cfg, ammo):
     screen.blit(font.render(f"Score: {score}", True, WHITE), (10, 10))
     screen.blit(font.render(f"Lives: {'♥ ' * lives}", True, RED), (WIDTH - 180, 10))
     screen.blit(font.render(level_cfg["label"], True, YELLOW), (WIDTH // 2 - 25, 10))
+    # 탄약 표시 (남은 개수가 적으면 빨간색으로 보이게)
+    ammo_color = WHITE if ammo > 3 else RED
+    screen.blit(font.render(f"Ammo: {ammo}", True, ammo_color), (10, 50))
 
 
 def message_screen(title, color, score):
@@ -103,17 +106,36 @@ def main():
     score = 0
     lives = 3
     launched = False
-    pre_launch_bx = level_cfg["ball_speed"]
+    pre_launch_bx = level_cfg["ball_speed"]    
+    bullets = [] # 탄환들을 저장할 리스트
+    BULLET_W, BULLET_H = 4, 10 # 탄환 크기
+    BULLET_SPEED = 10 # 탄환 속도
+    ammo = 10  # 초기 탄약 10발
+    
+    # 블록 하강 관련 변수
+    BLOCK_MOVE_INTERVAL = 3000  # 3초마다 하강
+    last_block_move = pygame.time.get_ticks()
 
     while True:
         clock.tick(FPS)
+        current_time = pygame.time.get_ticks()
 
         for e in pygame.event.get():
             if e.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
-            
-            # 스페이스바 처리 부분 수정
+                
+            # 위 방향키를 누르면 탄환 생성
+            if e.type == pygame.KEYDOWN and e.key == pygame.K_UP:
+                if launched: # 이 조건문이 핵심입니다!
+                    if ammo > 0:
+                        new_bullet = pygame.Rect(pad.centerx - BULLET_W // 2, pad.top - BULLET_H, BULLET_W, BULLET_H)
+                        bullets.append(new_bullet)
+                        ammo -= 1  # 발사 시 탄약 감소
+                    else:
+                        print("탄약 부족!")
+                
+            # 스페이스바 처리 부분 
             if e.type == pygame.KEYDOWN and e.key == pygame.K_SPACE:
                 # 공이 '아직' 발사되지 않은 상태일 때만 발사 로직을 실행합니다.
                 if not launched: 
@@ -122,14 +144,17 @@ def main():
                     by = abs(level_cfg["ball_speed"]) 
                     # 현재 좌우 왕복하던 속도를 그대로 반영
                     bx = pre_launch_bx
+                    # 발사하는 순간부터 3초를 새로 잽니다.
+                    last_block_move = pygame.time.get_ticks()
 
-        # 1. 패들 이동 처리 (공이 붙어있을 때도 패들은 움직여야 함)
+        # 패들 이동 처리
         keys = pygame.key.get_pressed()
         if keys[pygame.K_LEFT] and pad.left > 0:
             pad.x -= 7
         if keys[pygame.K_RIGHT] and pad.right < WIDTH:
             pad.x += 7
-
+        
+        #발사 전 대기
         if not launched:
             # 1. 공의 좌우 왕복 이동 (y좌표는 고정)
             ball.x += pre_launch_bx
@@ -137,81 +162,115 @@ def main():
             # 2. 화면 벽에 부딪히면 튕기기
             if ball.left <= 0 or ball.right >= WIDTH:
                 pre_launch_bx = -pre_launch_bx
+        
+        # 탄환 이동 및 블록 충돌 로직
+        if launched:
+            # 인베이더 스타일: 블록 하강 로직
+            if current_time - last_block_move > BLOCK_MOVE_INTERVAL:
+                for b in blocks:
+                    b["rect"].y += 15  # 15픽셀씩 아래로
+                last_block_move = current_time # 타이머 리셋
             
-            # 화면 그리기
-            screen.fill(GRAY)
+            # 압사 조건 체크: 블록이 패들 높이까지 내려오면 게임 오버
             for b in blocks:
-                pygame.draw.rect(screen, b["color"], b["rect"])
-            pygame.draw.rect(screen, WHITE, pad)
-            pygame.draw.ellipse(screen, WHITE, ball)
-            draw_hud(score, lives, level_cfg)
+                if b["rect"].bottom > pad.top:
+                    if message_screen("CRUSHED!", RED, score):
+                        main()
+                
+            for bullet in bullets[:]:  # 복사본으로 반복문 돌리기 (삭제 시 에러 방지)
+                bullet.y -= BULLET_SPEED # 탄환을 위로 이동
             
-            text_surf = font.render("SPACE to launch", True, YELLOW)
-            screen.blit(
-                text_surf, (WIDTH // 2 - text_surf.get_width() // 2, HEIGHT // 2 + 40)
-            )
-            pygame.display.flip()
-            continue
+                # 화면 밖으로 나가면 탄환 제거
+                if bullet.bottom < 0:
+                    bullets.remove(bullet)
+                    continue
 
-        ball.x += bx
-        ball.y += by
+                # 탄환과 블록 충돌 체크
+                for b in blocks[:]:
+                    if bullet.colliderect(b["rect"]):
+                        b["hp"] -= 1
+                        if b["hp"] <= 0:
+                            blocks.remove(b)
+                            score += 10
+                        # 탄환이 이미 리스트에 있을 때만 삭제 (중복 삭제 방지)
+                        if bullet in bullets:
+                            bullets.remove(bullet)
+                        break
+        
+            ball.x += bx
+            ball.y += by
 
-        if ball.left <= 0 or ball.right >= WIDTH:
-            # hit_wall_sound.play()
-            bx = -bx
-        if ball.top <= 0:
-            # hit_wall_sound.play()
-            by = -by
+            if ball.left <= 0 or ball.right >= WIDTH:
+                # hit_wall_sound.play()
+                bx = -bx
+            if ball.top <= 0:
+                # hit_wall_sound.play()
+                by = -by
 
-        if ball.colliderect(pad) and by > 0:
-            # hit_wall_sound.play()
-            offset = (ball.centerx - pad.centerx) / (PAD_W / 2)
-            bx = int(offset * level_cfg["ball_speed"]) or bx
-            by = -abs(by)
+            if ball.colliderect(pad) and by > 0:
+                # hit_wall_sound.play()
+                offset = (ball.centerx - pad.centerx) / (PAD_W / 2)
+                bx = int(offset * level_cfg["ball_speed"]) or bx
+                by = -abs(by)
 
-        hit_block = None
-        for b in blocks:
-            if ball.colliderect(b["rect"]):
-                hit_block = b
-                break
-        if hit_block:
-            # hit_block_sound.play()
-            hit_block["hp"] -= 1
-            if hit_block["hp"] <= 0:
-                blocks.remove(hit_block)
-                score += 10
-            by = -by
+            hit_block = None
+            for b in blocks:
+                if ball.colliderect(b["rect"]):
+                    hit_block = b
+                    break
+            if hit_block:
+                # hit_block_sound.play()
+                hit_block["hp"] -= 1
+                if hit_block["hp"] <= 0:
+                    blocks.remove(hit_block)
+                    score += 10
+                by = -by
+    
+            if ball.bottom >= HEIGHT:
+                # miss_sound.play()
+                lives -= 1
+                launched = False
+                ball.center = (WIDTH // 2, HEIGHT // 2)
+                if lives <= 0:
+                    if message_screen("GAME OVER", RED, score):
+                        main()
+                    return
 
-        if ball.bottom >= HEIGHT:
-            # miss_sound.play()
-            lives -= 1
-            launched = False
-            ball.center = (WIDTH // 2, HEIGHT // 2)
-            if lives <= 0:
-                if message_screen("GAME OVER", RED, score):
-                    main()
-                return
-
-        if not blocks:
-            # clear_sound.play()
-            level_idx += 1
-            if level_idx >= len(LEVELS):
-                if message_screen("CLEAR!", YELLOW, score):
-                    main()
-                return
-            level_cfg = LEVELS[level_idx]
-            blocks = make_blocks(level_cfg["rows"])
-            launched = False
-            ball.center = (WIDTH // 2, HEIGHT // 2)
-            bx, by = level_cfg["ball_speed"], -level_cfg["ball_speed"]
-
+            if not blocks:
+                # clear_sound.play()
+                level_idx += 1
+                if level_idx >= len(LEVELS):
+                    if message_screen("CLEAR!", YELLOW, score):
+                        main()
+                    return
+                level_cfg = LEVELS[level_idx]
+                blocks = make_blocks(level_cfg["rows"])
+                launched = False
+                ball.center = (WIDTH // 2, HEIGHT // 2)
+                bx, by = level_cfg["ball_speed"], -level_cfg["ball_speed"]
+        
+        
+        # 화면 그리기
         screen.fill(GRAY)
+        
+        # 1. 블록 그리기
         for b in blocks:
             pygame.draw.rect(screen, b["color"], b["rect"])
+            
+        # 2. 패들/공 그리기
         pygame.draw.rect(screen, WHITE, pad)
         pygame.draw.ellipse(screen, WHITE, ball)
-        draw_hud(score, lives, level_cfg)
+        
+        # 3. 탄환 그리기
+        for bullet in bullets:
+            pygame.draw.rect(screen, YELLOW, bullet)
+            
+        # 4. 발사 전 안내 문구 (시작 안 했을 때만)
+        if not launched:
+            text_surf = font.render("SPACE to launch", True, YELLOW)
+            screen.blit(text_surf, (WIDTH // 2 - text_surf.get_width() // 2, HEIGHT // 2 + 40))
+            
+        # 5. HUD 및 업데이트
+        draw_hud(score, lives, level_cfg, ammo)
         pygame.display.flip()
-
-
 main()
