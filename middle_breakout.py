@@ -63,7 +63,12 @@ def make_blocks(rows):
             y = BLOCK_TOP + r * (BLOCK_H + BLOCK_MARGIN)
             color = BLOCK_COLORS[r % len(BLOCK_COLORS)]
             blocks.append(
-                {"rect": pygame.Rect(x, y, BLOCK_W, BLOCK_H), "color": color, "hp": 1}
+                {
+                    "rect": pygame.Rect(x, y, BLOCK_W, BLOCK_H),
+                    "color": color,
+                    "hp": 1,
+                    "original_y": y
+                }
             )
     return blocks
 
@@ -227,8 +232,12 @@ def main():
                 if item["rect"].top > HEIGHT:
                     items.remove(item)
             
-            if ball.left <= 0 or ball.right >= WIDTH:
-                # hit_wall_sound.play()
+            # 벽에 부딪혔을때 튕기는 코드
+            if ball.left <= 0:
+                ball.left = 0  # 왼쪽 벽 밖으로 강제 위치 고정
+                bx = -bx
+            elif ball.right >= WIDTH:
+                ball.right = WIDTH  # 오른쪽 벽 밖으로 강제 위치 고정
                 bx = -bx
             if ball.top <= 0:
                 # hit_wall_sound.play()
@@ -259,19 +268,19 @@ def main():
                         }
                         items.append(new_item)
                 by = -by
-    
+            
+            # 공 놓쳤을때
             if ball.bottom >= HEIGHT:
                 # miss_sound.play()
                 lives -= 1
                 launched = False
                 ball.center = (WIDTH // 2, HEIGHT // 2)
+                bullets.clear() # 날아가던 총알 삭제
+                items.clear()   # 떨어지던 아이템 삭제
                 # 모든 블록의 위치를 초기화
                 # r (행 번호)을 다시 계산해서 원래 y 위치로 보냅니다.
-                for i, b in enumerate(blocks):
-                    # 처음에 blocks를 만들 때 r % len(BLOCK_COLORS) 순서로 만들었으므로
-                    # 행 번호는 i // BLOCK_COLS 로 계산할 수 있습니다.
-                    row_idx = i // BLOCK_COLS
-                    b["rect"].y = BLOCK_TOP + row_idx * (BLOCK_H + BLOCK_MARGIN)
+                for b in blocks:
+                    b["rect"].y = b["original_y"] # 기억해둔 원래 위치로 강제 소환
                 
                 # 타이머도 초기화해서 부활하자마자 블록이 내려오는 걸 방지
                 last_block_move = pygame.time.get_ticks()
