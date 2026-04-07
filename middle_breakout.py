@@ -34,11 +34,11 @@ clock = pygame.time.Clock()
 font = get_korean_font(36)
 font_big = get_korean_font(72)
 
-# --- 레벨 설정 ---
+# --- [수정] 레벨 설정 ---
 LEVELS = [
-    {"rows": 3, "ball_speed": 5, "label": "Lv.1"},
-    {"rows": 5, "ball_speed": 6, "label": "Lv.2"},
-    {"rows": 7, "ball_speed": 8, "label": "Lv.3"},
+    {"rows": 3, "ball_speed": 5, "label": "Lv.1", "block_interval": 3000}, # 3초
+    {"rows": 5, "ball_speed": 6, "label": "Lv.2", "block_interval": 2500}, # 2.5초
+    {"rows": 7, "ball_speed": 8, "label": "Lv.3", "block_interval": 2000}, # 2초
 ]
 
 PAD_W, PAD_H = 100, 12
@@ -99,7 +99,7 @@ def main():
     # --- 배경음악 로드 및 재생 ---
     try:
         pygame.mixer.music.load("./sounds/bgmusic.mp3")
-        pygame.mixer.music.set_volume(0.5)  # 배경음악은 조금 작게 설정하는 것이 정신 건강에 좋습니다.
+        pygame.mixer.music.set_volume(0.3)  # 배경음악은 조금 작게 설정하는 것이 정신 건강에 좋습니다.
         pygame.mixer.music.play(-1)         # -1은 무한 반복을 의미합니다.
     except pygame.error:
         print("경고: ./sounds/bgmusic.mp3 파일을 찾을 수 없습니다.")
@@ -145,7 +145,7 @@ def main():
     ITEM_SPEED = 3
     
     # 블록 하강 관련 변수
-    BLOCK_MOVE_INTERVAL = 3000  # 3초마다 하강
+    BLOCK_MOVE_INTERVAL = level_cfg["block_interval"]
     last_block_move = pygame.time.get_ticks()
     
     # --- [추가] 효과음 로드 ---
@@ -155,6 +155,14 @@ def main():
     except FileNotFoundError:
         print("경고: ./sounds/gunFire.mp3 파일을 찾을 수 없습니다. 소리 없이 진행합니다.")
         shoot_sound = None
+    
+    # --- [추가] 튕김 효과음 로드 ---
+    try:
+        bounce_sound = pygame.mixer.Sound("./sounds/slight_boink.wav")
+        bounce_sound.set_volume(0.5) # 적당한 볼륨으로 설정
+    except FileNotFoundError:
+        print("경고: ./sounds/slight_boink.wav 파일을 찾을 수 없습니다.")
+        bounce_sound = None
 
     while True:
         clock.tick(FPS)
@@ -254,6 +262,25 @@ def main():
             ball.x += bx
             ball.y += by
             
+            # 벽에 부딪혔을때 튕기는 코드
+            if ball.left <= 0:
+                if bounce_sound: bounce_sound.play()
+                ball.left = 0  # 왼쪽 벽 밖으로 강제 위치 고정
+                bx = -bx
+            elif ball.right >= WIDTH:
+                if bounce_sound: bounce_sound.play()
+                ball.right = WIDTH  # 오른쪽 벽 밖으로 강제 위치 고정
+                bx = -bx
+            if ball.top <= 0:
+                if bounce_sound: bounce_sound.play()
+                by = -by
+
+            if ball.colliderect(pad) and by > 0:
+                if bounce_sound: bounce_sound.play()
+                offset = (ball.centerx - pad.centerx) / (PAD_W / 2)
+                bx = int(offset * level_cfg["ball_speed"]) or bx
+                by = -abs(by)
+            
             # 아이템 로직
             for item in items[:]:
                 item["rect"].y += ITEM_SPEED # 아래로 낙하
@@ -267,23 +294,6 @@ def main():
                 # 화면 밖으로 나가면 제거
                 if item["rect"].top > HEIGHT:
                     items.remove(item)
-            
-            # 벽에 부딪혔을때 튕기는 코드
-            if ball.left <= 0:
-                ball.left = 0  # 왼쪽 벽 밖으로 강제 위치 고정
-                bx = -bx
-            elif ball.right >= WIDTH:
-                ball.right = WIDTH  # 오른쪽 벽 밖으로 강제 위치 고정
-                bx = -bx
-            if ball.top <= 0:
-                # hit_wall_sound.play()
-                by = -by
-
-            if ball.colliderect(pad) and by > 0:
-                # hit_wall_sound.play()
-                offset = (ball.centerx - pad.centerx) / (PAD_W / 2)
-                bx = int(offset * level_cfg["ball_speed"]) or bx
-                by = -abs(by)
 
             hit_block = None
             for b in blocks:
@@ -291,7 +301,7 @@ def main():
                     hit_block = b
                     break
             if hit_block:
-                # hit_block_sound.play()
+                if bounce_sound: bounce_sound.play()
                 hit_block["hp"] -= 1
                 if hit_block["hp"] <= 0:
                     blocks.remove(hit_block)
@@ -335,8 +345,13 @@ def main():
                     if message_screen("CLEAR!", YELLOW, score):
                         main()
                     return
+                
                 level_cfg = LEVELS[level_idx]
                 blocks = make_blocks(level_cfg["rows"])
+                
+                # --- [추가] 다음 레벨의 블록 하강 속도로 갱신 ---
+                BLOCK_MOVE_INTERVAL = level_cfg["block_interval"]
+                
                 launched = False
                 ball.center = (WIDTH // 2, HEIGHT // 2)
                 bx, by = level_cfg["ball_speed"], -level_cfg["ball_speed"]
