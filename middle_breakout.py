@@ -41,12 +41,6 @@ LEVELS = [
     {"rows": 7, "ball_speed": 8, "label": "Lv.3"},
 ]
 
-# --- 사운드 자리 ---
-# hit_block_sound  = pygame.mixer.Sound("hit_block.wav")
-# hit_wall_sound   = pygame.mixer.Sound("hit_wall.wav")
-# miss_sound       = pygame.mixer.Sound("miss.wav")
-# clear_sound      = pygame.mixer.Sound("clear.wav")
-
 PAD_W, PAD_H = 100, 12
 BALL_R = 8
 BLOCK_W, BLOCK_H = 72, 22
@@ -102,6 +96,13 @@ def message_screen(title, color, score):
 
 
 def main():
+    # --- 배경음악 로드 및 재생 ---
+    try:
+        pygame.mixer.music.load("./sounds/bgmusic.mp3")
+        pygame.mixer.music.set_volume(0.5)  # 배경음악은 조금 작게 설정하는 것이 정신 건강에 좋습니다.
+        pygame.mixer.music.play(-1)         # -1은 무한 반복을 의미합니다.
+    except pygame.error:
+        print("경고: ./sounds/bgmusic.mp3 파일을 찾을 수 없습니다.")
     level_idx = 0
     level_cfg = LEVELS[level_idx]
 
@@ -115,7 +116,27 @@ def main():
     pre_launch_bx = level_cfg["ball_speed"]
     
     bullets = [] # 탄환들을 저장할 리스트
-    BULLET_W, BULLET_H = 4, 10 # 탄환 크기
+    
+    # --- 총알 이미지 로드 ---
+    # 파일 경로가 ./sprites/arrow_right.png 여야 합니다.
+    try:
+        bullet_img = pygame.image.load("./sprites/arrow_right.png").convert_alpha()
+        
+        # 크기 조절 (50%로 축소)
+        IMAGE_SCALE_FACTOR = 0.5  # 원하시는 비율로 조절하세요 (0.0 ~ 1.0)
+        orig_w, orig_h = bullet_img.get_size()
+        new_size = (int(orig_w * IMAGE_SCALE_FACTOR), int(orig_h * IMAGE_SCALE_FACTOR))
+        bullet_img_scaled = pygame.transform.scale(bullet_img, new_size)
+        
+        # 회전 (-90도, 시계 방향)
+        bullet_img = pygame.transform.rotate(bullet_img_scaled, 90)
+        
+    except FileNotFoundError:
+        print("에러: ./sprites/arrow_right.png 파일을 찾을 수 없습니다.")
+        pygame.quit()
+        sys.exit()
+    
+    BULLET_W, BULLET_H = bullet_img.get_size() # 탄환 크기
     BULLET_SPEED = 10 # 탄환 속도
     ammo = 10  # 초기 탄약 10발
     
@@ -126,6 +147,14 @@ def main():
     # 블록 하강 관련 변수
     BLOCK_MOVE_INTERVAL = 3000  # 3초마다 하강
     last_block_move = pygame.time.get_ticks()
+    
+    # --- [추가] 효과음 로드 ---
+    try:
+        shoot_sound = pygame.mixer.Sound("./sounds/gunFire.mp3")
+        shoot_sound.set_volume(0.4) # 볼륨 (0.0 ~ 1.0)
+    except FileNotFoundError:
+        print("경고: ./sounds/gunFire.mp3 파일을 찾을 수 없습니다. 소리 없이 진행합니다.")
+        shoot_sound = None
 
     while True:
         clock.tick(FPS)
@@ -140,9 +169,15 @@ def main():
             if e.type == pygame.KEYDOWN and e.key == pygame.K_UP:
                 if launched: # 이 조건문이 핵심입니다!
                     if ammo > 0:
-                        new_bullet = pygame.Rect(pad.centerx - BULLET_W // 2, pad.top - BULLET_H, BULLET_W, BULLET_H)
+                        # --- [수정] 스프라이트 이미지를 사용하는 방식으로 총알 생성 ---
+                        # 이미지의 midbottom 좌표를 패들의 중앙 위쪽에 맞춥니다.
+                        new_bullet = bullet_img.get_rect(midbottom=(pad.centerx, pad.top))
                         bullets.append(new_bullet)
                         ammo -= 1  # 발사 시 탄약 감소
+                        
+                        # --- [추가] 총소리 재생 ---
+                        if shoot_sound:
+                            shoot_sound.play()
                     else:
                         print("탄약 부족!")
                 
@@ -185,6 +220,7 @@ def main():
             # 압사 조건 체크: 블록이 패들 높이까지 내려오면 게임 오버
             for b in blocks:
                 if b["rect"].bottom > pad.top:
+                    pygame.mixer.music.stop() # 메시지 창 띄우기 전에 음악 정지
                     if message_screen("CRUSHED!", RED, score):
                         main()
                 
@@ -286,6 +322,7 @@ def main():
                 last_block_move = pygame.time.get_ticks()
 
                 if lives <= 0:
+                    pygame.mixer.music.stop() # 메시지 창 띄우기 전에 음악 정지
                     if message_screen("GAME OVER", RED, score):
                         main()
                     return
@@ -294,6 +331,7 @@ def main():
                 # clear_sound.play()
                 level_idx += 1
                 if level_idx >= len(LEVELS):
+                    pygame.mixer.music.stop() # 최종 클리어 시 정지
                     if message_screen("CLEAR!", YELLOW, score):
                         main()
                     return
@@ -317,7 +355,8 @@ def main():
         
         # 3. 탄환 그리기
         for bullet in bullets:
-            pygame.draw.rect(screen, YELLOW, bullet)
+            #pygame.draw.rect(screen, YELLOW, bullet)
+            screen.blit(bullet_img, bullet) # 화살표 이미지 그리기
         
         # 4. 아이템 그리기
         for item in items:
