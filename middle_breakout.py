@@ -37,8 +37,8 @@ font_big = get_korean_font(72)
 # --- [수정] 레벨 설정 ---
 LEVELS = [
     {"rows": 3, "ball_speed": 5, "label": "Lv.1", "block_interval": 3000}, # 3초
-    {"rows": 5, "ball_speed": 6, "label": "Lv.2", "block_interval": 2500}, # 2.5초
-    {"rows": 7, "ball_speed": 8, "label": "Lv.3", "block_interval": 2000}, # 2초
+    {"rows": 5, "ball_speed": 6, "label": "Lv.2", "block_interval": 2000}, # 2.5초
+    {"rows": 7, "ball_speed": 7, "label": "Lv.3", "block_interval": 1500}, # 2초
 ]
 
 PAD_W, PAD_H = 100, 12
@@ -294,26 +294,38 @@ def main():
                 # 화면 밖으로 나가면 제거
                 if item["rect"].top > HEIGHT:
                     items.remove(item)
-
+            
+            # --- 블록 충돌 로직 ---
             hit_block = None
             for b in blocks:
                 if ball.colliderect(b["rect"]):
                     hit_block = b
-                    break
+                    
+                    # 어느 면에서 부딪혔는지 계산하여 반사 방향 결정
+                    overlap_left = abs(ball.right - b["rect"].left)
+                    overlap_right = abs(ball.left - b["rect"].right)
+                    overlap_top = abs(ball.bottom - b["rect"].top)
+                    overlap_bottom = abs(ball.top - b["rect"].bottom)
+
+                    if min(overlap_left, overlap_right) < min(overlap_top, overlap_bottom):
+                        bx = -bx # 옆면 충돌
+                    else:
+                        by = -by # 윗면/아랫면 충돌
+                    
+                    break # 한 번에 블록 하나만 처리
+
             if hit_block:
                 if bounce_sound: bounce_sound.play()
                 hit_block["hp"] -= 1
                 if hit_block["hp"] <= 0:
                     blocks.remove(hit_block)
                     score += 10
-                    # [추가] 10% 확률로 아이템 생성
-                    if random.random() < 0.1: # 0.0 ~ 1.0 사이 난수
+                    if random.random() < 0.1: # 10% 확률로 아이템 생성
                         new_item = {
                             "rect": pygame.Rect(hit_block["rect"].centerx - 10, hit_block["rect"].bottom, 20, 20),
                             "type": "AMMO"
                         }
                         items.append(new_item)
-                by = -by
             
             # 공 놓쳤을때
             if ball.bottom >= HEIGHT:
