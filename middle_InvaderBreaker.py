@@ -29,7 +29,7 @@ GREEN = (50, 200, 50)
 BLOCK_COLORS = [RED, ORANGE, YELLOW, GREEN, BLUE]
 
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
-pygame.display.set_caption("Breakout")
+pygame.display.set_caption("Invader_Breaker")
 clock = pygame.time.Clock()
 font = get_korean_font(36)
 font_big = get_korean_font(72)
@@ -48,6 +48,12 @@ BLOCK_COLS = 10
 BLOCK_MARGIN = 5
 BLOCK_TOP = 60
 
+ITEM_W, ITEM_H = 40, 40
+ITEM_SPEED = 3
+
+# --- [추가] 화면 흔들림 설정 ---
+SHAKE_INTENSITY = 10  # 얼마나 세게 흔들 것인가
+SHAKE_DURATION = 15   # 얼마나 오래 흔들 것인가 (프레임 단위)
 
 def make_blocks(rows):
     blocks = []
@@ -67,13 +73,14 @@ def make_blocks(rows):
     return blocks
 
 
-def draw_hud(score, lives, level_cfg, ammo):
-    screen.blit(font.render(f"Score: {score}", True, WHITE), (10, 10))
-    screen.blit(font.render(f"Lives: {'♥ ' * lives}", True, RED), (WIDTH - 250, 10))
-    screen.blit(font.render(level_cfg["label"], True, YELLOW), (WIDTH // 2 - 25, 10))
+# --- [수정] 표면(surf)을 인자로 받도록 변경 ---
+def draw_hud(surf, score, lives, level_cfg, ammo):
+    surf.blit(font.render(f"Score: {score}", True, WHITE), (10, 10))
+    surf.blit(font.render(f"Lives: {'♥ ' * lives}", True, RED), (WIDTH - 250, 10))
+    surf.blit(font.render(level_cfg["label"], True, YELLOW), (WIDTH // 2 - 25, 10))
     # 탄약 표시 (남은 개수가 적으면 빨간색으로 보이게)
     ammo_color = WHITE if ammo > 3 else RED
-    screen.blit(font.render(f"Ammo: {ammo}", True, ammo_color), (10, 50))
+    surf.blit(font.render(f"Ammo: {ammo}", True, ammo_color), (10, 50))
 
 
 def message_screen(title, color, score):
@@ -136,13 +143,33 @@ def main():
         pygame.quit()
         sys.exit()
     
+    # ---아이템 이미지 로드 ---
+    try:
+        # 1. 일단 원본 흰색 다이아몬드를 불러옵니다.
+        item_img_raw = pygame.image.load("./sprites/suit_diamonds.png").convert_alpha()
+        
+        # 2. 크기를 왕창 키웁니다. (전역 상수 ITEM_W, ITEM_H 사용)
+        item_img_scaled = pygame.transform.scale(item_img_raw, (ITEM_W, ITEM_H))
+        
+        # 3. [추가] 흰색 이미지를 초록색으로 물들이는 로직
+        # 이미지가 흰색(255, 255, 255)일 때 아주 잘 작동합니다.
+        # 같은 크기의 초록색 사각형을 만든 뒤 BLEND_RGBA_MULT 방식으로 덧칠합니다.
+        color_surface = pygame.Surface((ITEM_W, ITEM_H)).convert_alpha()
+        color_surface.fill((0, 200, 0, 255)) # 초록색 (RGB + 투명도 255)
+        item_img_scaled.blit(color_surface, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+        
+        # 4. 최종 변조된 이미지를 저장
+        item_img = item_img_scaled
+        
+    except FileNotFoundError:
+        print("경고: ./sprites/suit_diamonds.png 파일을 찾을 수 없습니다.")
+        item_img = None
+    
     BULLET_W, BULLET_H = bullet_img.get_size() # 탄환 크기
     BULLET_SPEED = 10 # 탄환 속도
     ammo = 10  # 초기 탄약 10발
     
     items = [] # 떨어지는 아이템들을 저장할 리스트
-    ITEM_W, ITEM_H = 20, 20
-    ITEM_SPEED = 3
     
     # 블록 하강 관련 변수
     BLOCK_MOVE_INTERVAL = level_cfg["block_interval"]
@@ -163,6 +190,10 @@ def main():
     except FileNotFoundError:
         print("경고: ./sounds/slight_boink.wav 파일을 찾을 수 없습니다.")
         bounce_sound = None
+        
+    shake_timer = 0  # 화면 흔들림 남은 시간
+    # 가상의 도화지 생성 (화면과 같은 크기)
+    display_surface = pygame.Surface((WIDTH, HEIGHT))
 
     while True:
         clock.tick(FPS)
@@ -228,6 +259,7 @@ def main():
             # 압사 조건 체크: 블록이 패들 높이까지 내려오면 게임 오버
             for b in blocks:
                 if b["rect"].bottom > pad.top:
+                    shake_timer = 30
                     pygame.mixer.music.stop() # 메시지 창 띄우기 전에 음악 정지
                     if message_screen("CRUSHED!", RED, score):
                         main()
@@ -287,7 +319,7 @@ def main():
             
                 # 패들이 아이템을 먹었을 때
                 if item["rect"].colliderect(pad):
-                    ammo += 2  # 총알 2발 충전 (원하시는 만큼 조절하세요)
+                    ammo += 10  # 총알 10발 충전 (원하시는 만큼 조절하세요)
                     items.remove(item)
                     continue
                 
@@ -331,6 +363,7 @@ def main():
             if ball.bottom >= HEIGHT:
                 # miss_sound.play()
                 lives -= 1
+                shake_timer = SHAKE_DURATION
                 launched = False
                 ball.center = (WIDTH // 2, HEIGHT // 2)
                 bullets.clear() # 날아가던 총알 삭제
@@ -369,33 +402,33 @@ def main():
                 bx, by = level_cfg["ball_speed"], -level_cfg["ball_speed"]
         
         
-        # 화면 그리기
-        screen.fill(GRAY)
+        # --- [수정] 화면 그리기 로직 ---
+        # 1. 모든 그림은 이제 screen이 아니라 display_surface에 그립니다.
+        display_surface.fill(GRAY)
         
-        # 1. 블록 그리기
-        for b in blocks:
-            pygame.draw.rect(screen, b["color"], b["rect"])
-            
-        # 2. 패들/공 그리기
-        pygame.draw.rect(screen, WHITE, pad)
-        pygame.draw.ellipse(screen, WHITE, ball)
-        
-        # 3. 탄환 그리기
-        for bullet in bullets:
-            #pygame.draw.rect(screen, YELLOW, bullet)
-            screen.blit(bullet_img, bullet) # 화살표 이미지 그리기
-        
-        # 4. 아이템 그리기
+        for b in blocks: pygame.draw.rect(display_surface, b["color"], b["rect"])
+        pygame.draw.rect(display_surface, WHITE, pad)
+        pygame.draw.ellipse(display_surface, WHITE, ball)
+        for bullet in bullets: display_surface.blit(bullet_img, bullet)
         for item in items:
-            # 총알 아이템은 눈에 띄게 초록색이나 하늘색으로!
-            pygame.draw.rect(screen, GREEN, item["rect"])
-            
-        # 5. 발사 전 안내 문구 (시작 안 했을 때만)
+            if item_img: display_surface.blit(item_img, item["rect"])
+            else: pygame.draw.rect(display_surface, GREEN, item["rect"])
+        
         if not launched:
             text_surf = font.render("SPACE to launch", True, YELLOW)
-            screen.blit(text_surf, (WIDTH // 2 - text_surf.get_width() // 2, HEIGHT // 2 + 40))
-            
-        # 6. HUD 및 업데이트
-        draw_hud(score, lives, level_cfg, ammo)
+            display_surface.blit(text_surf, (WIDTH // 2 - text_surf.get_width() // 2, HEIGHT // 2 + 40))
+        
+        draw_hud(display_surface, score, lives, level_cfg, ammo) # HUD도 가상 표면에 그림
+
+        # 2. 흔들림 계산
+        render_offset = [0, 0]
+        if shake_timer > 0:
+            render_offset[0] = random.randint(-SHAKE_INTENSITY, SHAKE_INTENSITY)
+            render_offset[1] = random.randint(-SHAKE_INTENSITY, SHAKE_INTENSITY)
+            shake_timer -= 1
+
+        # 3. 가상 표면을 실제 screen에 오프셋을 줘서 붙임
+        screen.fill(BLACK) # 배경을 검은색으로 비우고
+        screen.blit(display_surface, render_offset)
         pygame.display.flip()
 main()
